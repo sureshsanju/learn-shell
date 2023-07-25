@@ -1,4 +1,5 @@
-
+pwd
+exit
 script_location=$(pwd)
 yum install ngnix -y
 systemctl enable ngnix
