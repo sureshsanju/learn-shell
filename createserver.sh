@@ -1,24 +1,32 @@
+
 #!/bin/bash
 
 ##### Change these values ###
-ZONE_ID=$(aws route53 list-hosted-zones --query "HostedZones[*].{ID:Id,Name:Name,Private:Config.PrivateZone}" --output text | awk '{print $1}' | awk -F / '{print $3}')
-DOMAIN_NAME=$(aws route53 list-hosted-zones --query "HostedZones[*].{ID:Id,Name:Name,Private:Config.PrivateZone}" --output text | awk '{print $2}' | sed -e 's/.$//')
+ZONE_ID="Z05113102OC4XVQHHUBQT"
+DOMAIN="devopsb70.tech"
 SG_NAME="allow-all"
-#ENV="dev"
-#############################
-sudo rm -f /tmp/record.json
-
 env=dev
+#############################
+
+
 
 create_ec2() {
   PRIVATE_IP=$(aws ec2 run-instances \
       --image-id ${AMI_ID} \
-      --instance-type t3.small \
-      --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${COMPONENT}}]"  \
-      --security-group-ids ${SGID} | jq '.Instances[].PrivateIpAddress' | sed -e 's/"//g')
+      --instance-type t3.micro \
+      --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${COMPONENT}}, {Key=Monitor,Value=yes}]" "ResourceType=spot-instances-request,Tags=[{Key=Name,Value=${COMPONENT}}]"  \
+      --instance-market-options "MarketType=spot,SpotOptions={SpotInstanceType=persistent,InstanceInterruptionBehavior=stop}"\
+      --security-group-ids ${SGID} \
+      | jq '.Instances[].PrivateIpAddress' | sed -e 's/"//g')
 
-  sed -e "s/IPADDRESS/${PRIVATE_IP}/" -e "s/COMPONENT/${COMPONENT}/" -e "s/DOMAIN_NAME/${DOMAIN_NAME}/" /tmp/labautomation/aws/route53.json >/tmp/record.json
-  aws route53 change-resource-record-sets --hosted-zone-id ${ZONE_ID} --change-batch file:///tmp/record.json | jq
+  sed -e "s/IPADDRESS/${PRIVATE_IP}/" -e "s/COMPONENT/${COMPONENT}/" -e "s/DOMAIN/${DOMAIN}/" route53.json >/tmp/record.json
+  aws route53 change-resource-record-sets --hosted-zone-id ${ZONE_ID} --change-batch file:///tmp/record.json 2>/dev/null
+  if [ $? -eq 0 ]; then
+    echo "Server Created - SUCCESS - DNS RECORD - ${COMPONENT}.${DOMAIN}"
+  else
+     echo "Server Created - FAILED - DNS RECORD - ${COMPONENT}.${DOMAIN}"
+     exit 1
+  fi
 }
 
 
@@ -37,6 +45,6 @@ fi
 
 
 for component in catalogue cart user shipping payment frontend mongodb mysql rabbitmq redis dispatch; do
-  COMPONENT="${component}"
+  COMPONENT="${component}-${env}"
   create_ec2
 done
